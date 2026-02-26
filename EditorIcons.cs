@@ -8,79 +8,77 @@ using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
-public class EditorIcons : EditorWindow
+namespace Editor.EditorIconsUI
 {
-    private static string[] _icoList => EditorIconsList.IcoList;
-
-    private int _buttonSize = 70;
-    private bool _darkPreview = true;
-
-    // Cached list to eliminate per-frame allocations
-    private List<GUIContent> _filteredIconList = new();
-    private GUIStyle? _iconButtonStyle;
-
-    private readonly List<GUIContent> _iconContentListAll = new();
-    private readonly List<GUIContent> _iconContentListBig = new();
-    private readonly List<GUIContent> _iconContentListSmall = new();
-    private GUIStyle? _iconPreviewBlack;
-    private GUIStyle? _iconPreviewWhite;
-    private GUIContent? _iconSelected;
-    private Vector2 _scroll;
-    private string _search = string.Empty;
-
-    private bool _viewBigIcons = true;
-
-    private bool IsWide => Screen.width > 550;
-    private bool DoSearch => !string.IsNullOrWhiteSpace(_search);
-
-    #region Menu
-
-    [MenuItem("Tools/Editor Icons %e", priority = -1001)]
-    public static void EditorIconsOpen()
+    public class EditorIcons : EditorWindow
     {
-        var w = CreateWindow<EditorIcons>("Editor Icons");
-        w.ShowUtility();
-        w.minSize = new Vector2(320, 450);
-    }
+        private static string[] _icoList = Array.Empty<string>();
 
-    #endregion
+        private int _buttonSize = 70;
+        private bool _darkPreview = true;
 
-    #region Lifecycle
+        private List<GUIContent> _filteredIconList = new();
+        private GUIStyle? _iconButtonStyle;
 
-    private void OnEnable()
-    {
-        var knownIcons = new HashSet<string>(_icoList.Where(x => GetIcon(x) != null));
+        private readonly List<GUIContent> _iconContentListAll = new();
+        private readonly List<GUIContent> _iconContentListBig = new();
+        private readonly List<GUIContent> _iconContentListSmall = new();
+        private GUIContent? _iconSelected;
+        private Vector2 _scroll;
+        private string _search = string.Empty;
 
-        var discovered = Resources.FindObjectsOfTypeAll<Texture2D>()
-            .Select(t => t.name)
-            .Where(iconName => GetIcon(iconName) != null && !knownIcons.Contains(iconName))
-            .ToList();
+        private bool _viewBigIcons = true;
 
-        _icoList = _icoList.Concat(discovered).ToArray();
+        private bool IsWide => Screen.width > 550;
+        private bool HasSearch => !string.IsNullOrWhiteSpace(_search);
 
-        Resources.UnloadUnusedAssets();
-        GC.Collect();
-    }
+        #region Menu
 
-    private void OnGUI()
-    {
-        InitIcons();
-
-        if (!IsWide) DrawSearchBar();
-        DrawToolbar();
-        if (IsWide) GUILayout.Space(3);
-        DrawIconGrid();
-        DrawSelectionPreview();
-    }
-
-    #endregion
-
-    #region GUI Drawing
-
-    private void DrawToolbar()
-    {
-        using (new GUILayout.HorizontalScope(EditorStyles.toolbar))
+        [MenuItem("Tools/Editor Icons %e", priority = -1001)]
+        public static void EditorIconsOpen()
         {
+            var w = CreateWindow<EditorIcons>("Editor Icons");
+            w.ShowUtility();
+            w.minSize = new Vector2(320, 450);
+        }
+
+        #endregion
+
+        #region Lifecycle
+
+        private void OnEnable()
+        {
+            var knownIcons = new HashSet<string>(EditorIconsList.IcoList.Where(x => GetIcon(x) is not null));
+
+            var discovered = Resources.FindObjectsOfTypeAll<Texture2D>()
+                .Select(t => t.name)
+                .Where(name => GetIcon(name) is not null && !knownIcons.Contains(name));
+
+            _icoList = _icoList.Concat(discovered).ToArray();
+
+            Resources.UnloadUnusedAssets();
+            GC.Collect();
+        }
+
+        private void OnGUI()
+        {
+            InitIcons();
+
+            if (!IsWide) DrawSearchBar();
+            DrawToolbar();
+            if (IsWide) GUILayout.Space(3);
+            DrawIconGrid();
+            DrawSelectionPreview();
+        }
+
+        #endregion
+
+        #region GUI Drawing
+
+        private void DrawToolbar()
+        {
+            using var _ = new GUILayout.HorizontalScope(EditorStyles.toolbar);
+
             if (GUILayout.Button("Save all icons to folder...", EditorStyles.toolbarButton))
                 SaveAllIcons();
 
@@ -88,17 +86,15 @@ public class EditorIcons : EditorWindow
             if (GUILayout.Toggle(!_viewBigIcons, "Small", EditorStyles.toolbarButton)) _viewBigIcons = false;
             if (GUILayout.Toggle(_viewBigIcons, "Big", EditorStyles.toolbarButton)) _viewBigIcons = true;
 
-            // Update cache if view mode changes
             if (EditorGUI.EndChangeCheck()) UpdateFilteredList();
 
             if (IsWide) DrawSearchBar();
         }
-    }
 
-    private void DrawSearchBar()
-    {
-        using (new GUILayout.HorizontalScope())
+        private void DrawSearchBar()
         {
+            using var _ = new GUILayout.HorizontalScope();
+
             if (IsWide) GUILayout.Space(10);
 
             EditorGUI.BeginChangeCheck();
@@ -114,78 +110,71 @@ public class EditorIcons : EditorWindow
                 GUI.FocusControl(null);
             }
 
-            // Update cache only when the search string changes
-            if (EditorGUI.EndChangeCheck())
-            {
-                _search = newSearch;
-                UpdateFilteredList();
-            }
-        }
-    }
+            if (!EditorGUI.EndChangeCheck()) return;
 
-    private void UpdateFilteredList()
-    {
-        if (!DoSearch)
-        {
-            _filteredIconList = _viewBigIcons ? _iconContentListBig : _iconContentListSmall;
-            return;
+            _search = newSearch;
+            UpdateFilteredList();
         }
 
-        var lowerSearch = _search.ToLowerInvariant();
-        _filteredIconList = _iconContentListAll
-            .Where(x => x.tooltip.ToLowerInvariant().Contains(lowerSearch))
-            .ToList();
-    }
-
-    private void DrawIconGrid()
-    {
-        var ppp = EditorGUIUtility.pixelsPerPoint;
-
-        using var scope = new GUILayout.ScrollViewScope(_scroll);
-        GUILayout.Space(10);
-        _scroll = scope.scrollPosition;
-
-        _buttonSize = _viewBigIcons ? 70 : 40;
-
-        var renderWidth = Screen.width / ppp - 13f;
-        var gridW = Mathf.FloorToInt(renderWidth / _buttonSize);
-        var marginLeft = (renderWidth - _buttonSize * gridW) / 2;
-
-        int row = 0, index = 0;
-        while (index < _filteredIconList.Count)
+        private void UpdateFilteredList()
         {
-            using (new GUILayout.HorizontalScope())
+            if (!HasSearch)
             {
-                GUILayout.Space(marginLeft);
-
-                for (var i = 0; i < gridW && index < _filteredIconList.Count; ++i, ++index)
-                {
-                    var icon = _filteredIconList[i + row * gridW];
-
-                    if (GUILayout.Button(icon, _iconButtonStyle,
-                            GUILayout.Width(_buttonSize), GUILayout.Height(_buttonSize)))
-                    {
-                        EditorGUI.FocusTextInControl("");
-                        _iconSelected = icon;
-                    }
-                }
+                _filteredIconList = _viewBigIcons ? _iconContentListBig : _iconContentListSmall;
+                return;
             }
 
-            row++;
+            var lowerSearch = _search.ToLowerInvariant();
+            _filteredIconList = _iconContentListAll
+                .Where(x => x.tooltip.ToLowerInvariant().Contains(lowerSearch))
+                .ToList();
         }
 
-        GUILayout.Space(10);
-    }
-
-    private void DrawSelectionPreview()
-    {
-        if (_iconSelected == null) return;
-
-        GUILayout.FlexibleSpace();
-
-        using (new GUILayout.HorizontalScope(EditorStyles.helpBox,
-                   GUILayout.MaxHeight(_viewBigIcons ? 140 : 120)))
+        private void DrawIconGrid()
         {
+            var ppp = EditorGUIUtility.pixelsPerPoint;
+
+            using var scope = new GUILayout.ScrollViewScope(_scroll);
+            GUILayout.Space(10);
+            _scroll = scope.scrollPosition;
+
+            _buttonSize = _viewBigIcons ? 70 : 40;
+
+            var renderWidth = Screen.width / ppp - 13f;
+            var gridW = Mathf.FloorToInt(renderWidth / _buttonSize);
+            var marginLeft = (renderWidth - _buttonSize * gridW) / 2;
+
+            for (var index = 0; index < _filteredIconList.Count;)
+                DrawIconRow(ref index, gridW, marginLeft);
+
+            GUILayout.Space(10);
+        }
+
+        private void DrawIconRow(ref int index, int gridW, float marginLeft)
+        {
+            using var _ = new GUILayout.HorizontalScope();
+            GUILayout.Space(marginLeft);
+
+            for (var col = 0; col < gridW && index < _filteredIconList.Count; ++col, ++index)
+            {
+                var icon = _filteredIconList[index];
+                if (!GUILayout.Button(icon, _iconButtonStyle,
+                        GUILayout.Width(_buttonSize), GUILayout.Height(_buttonSize))) continue;
+
+                EditorGUI.FocusTextInControl("");
+                _iconSelected = icon;
+            }
+        }
+
+        private void DrawSelectionPreview()
+        {
+            if (_iconSelected is null) return;
+
+            GUILayout.FlexibleSpace();
+
+            using var _ = new GUILayout.HorizontalScope(EditorStyles.helpBox,
+                GUILayout.MaxHeight(_viewBigIcons ? 140 : 120));
+
             DrawPreviewImage();
             GUILayout.Space(10);
             DrawPreviewDetails();
@@ -194,21 +183,21 @@ public class EditorIcons : EditorWindow
             if (GUILayout.Button("X", GUILayout.ExpandHeight(true)))
                 _iconSelected = null;
         }
-    }
 
-    private void DrawPreviewImage()
-    {
-        using (new GUILayout.VerticalScope(GUILayout.Width(130)))
+        private void DrawPreviewImage()
         {
+            using var _ = new GUILayout.VerticalScope(GUILayout.Width(130));
+
             GUILayout.Space(2);
 
             float height = _viewBigIcons ? 128 : 40;
             var previewRect = GUILayoutUtility.GetRect(128, height, GUILayout.Width(128));
 
-            var bgColor = _darkPreview ? new Color(0.15f, 0.15f, 0.15f) : new Color(0.85f, 0.85f, 0.85f);
+            var bgColor = _darkPreview
+                ? new Color(0.15f, 0.15f, 0.15f)
+                : new Color(0.85f, 0.85f, 0.85f);
             EditorGUI.DrawRect(previewRect, bgColor);
 
-            // Pattern Matching for null check and assignment
             if (_iconSelected?.image is { } image)
                 GUI.DrawTexture(previewRect, image, ScaleMode.ScaleToFit);
 
@@ -220,22 +209,19 @@ public class EditorIcons : EditorWindow
 
             GUILayout.FlexibleSpace();
         }
-    }
 
-    private void DrawPreviewDetails()
-    {
-        using (new GUILayout.VerticalScope())
+        private void DrawPreviewDetails()
         {
+            using var _ = new GUILayout.VerticalScope();
+
             var iconName = _iconSelected!.tooltip;
             var isProSkin = iconName.StartsWith("d_") ? "Yes" : "No";
 
-            // Null check bypass for image via pattern matching
-            var width = _iconSelected.image is { } imgW ? imgW.width : 0;
-            var height = _iconSelected.image is { } imgH ? imgH.height : 0;
+            var (width, height) = _iconSelected.image is { } img
+                ? (img.width, img.height)
+                : (0, 0);
 
-            var info = $"Size: {width}x{height}"
-                       + $"\nIs Pro Skin Icon: {isProSkin}"
-                       + $"\nTotal {_iconContentListAll.Count} icons";
+            var info = $"Size: {width}x{height}\nIs Pro Skin Icon: {isProSkin}\nTotal {_iconContentListAll.Count} icons";
 
             GUILayout.Space(5);
             EditorGUILayout.HelpBox(info, MessageType.None);
@@ -249,151 +235,147 @@ public class EditorIcons : EditorWindow
             if (GUILayout.Button("Save icon to file ...", EditorStyles.miniButton))
                 SaveIcon(iconName);
         }
-    }
 
-    #endregion
+        #endregion
 
-    #region Icon Loading
+        #region Icon Loading
 
-    private void InitIcons()
-    {
-        if (_iconButtonStyle != null) return;
-
-        // Target-Typed new()
-        _iconButtonStyle = new GUIStyle(EditorStyles.miniButton) { margin = new RectOffset(0, 0, 0, 0), fixedHeight = 0 };
-
-        _iconPreviewBlack = new GUIStyle(_iconButtonStyle);
-        ApplyBackgroundToAllStates(_iconPreviewBlack, CreatePixelTexture(new Color(0.15f, 0.15f, 0.15f)));
-
-        _iconPreviewWhite = new GUIStyle(_iconButtonStyle);
-        ApplyBackgroundToAllStates(_iconPreviewWhite, CreatePixelTexture(new Color(0.85f, 0.85f, 0.85f)));
-
-        _iconContentListSmall.Clear();
-        _iconContentListBig.Clear();
-        _iconContentListAll.Clear();
-
-        foreach (var iconName in _icoList)
+        private void InitIcons()
         {
-            var ico = GetIcon(iconName);
+            if (_iconButtonStyle is not null) return;
 
-            if (ico == null) continue;
-
-            ico.tooltip = iconName;
-            _iconContentListAll.Add(ico);
-
-            if (ico.image is { } img && img.width > 36 && img.height > 36)
-                _iconContentListBig.Add(ico);
-            else
-                _iconContentListSmall.Add(ico);
-        }
-
-        UpdateFilteredList(); // Initialize the cache
-    }
-
-    private static GUIContent? GetIcon(string iconName)
-    {
-        if (string.IsNullOrEmpty(iconName)) return null;
-
-        Debug.unityLogger.logEnabled = false;
-        var content = EditorGUIUtility.IconContent(iconName);
-        Debug.unityLogger.logEnabled = true;
-
-        return content?.image != null ? content : null;
-    }
-
-    #endregion
-
-    #region Save Operations
-
-    private void SaveIcon(string iconName)
-    {
-        if (EditorGUIUtility.IconContent(iconName).image is not Texture2D tex)
-        {
-            Debug.LogError("Cannot save the icon: null texture error!");
-            return;
-        }
-
-        var path = EditorUtility.SaveFilePanel("Save icon", "", iconName, "png");
-        if (string.IsNullOrEmpty(path)) return;
-
-        try
-        {
-            var outTex = CopyTexture(tex);
-            File.WriteAllBytes(path, outTex.EncodeToPNG());
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"Cannot save the icon: {e.Message}");
-        }
-    }
-
-    private void SaveAllIcons()
-    {
-        var folderPath = EditorUtility.SaveFolderPanel("", "", "");
-        if (string.IsNullOrWhiteSpace(folderPath))
-        {
-            Debug.LogError("Folder path invalid...");
-            return;
-        }
-
-        try
-        {
-            foreach (var icon in _icoList)
+            _iconButtonStyle = new GUIStyle(EditorStyles.miniButton)
             {
-                if (EditorGUIUtility.IconContent(icon).image is not Texture2D tex)
-                    continue;
+                margin = new RectOffset(0, 0, 0, 0),
+                fixedHeight = 0
+            };
 
-                var fileName = icon.Split('/').Last();
-                var path = Path.Combine(folderPath, $"{fileName}.png");
+            _iconContentListSmall.Clear();
+            _iconContentListBig.Clear();
+            _iconContentListAll.Clear();
 
-                if (File.Exists(path))
-                {
-                    Debug.Log($"File already exists, skipping: {path}");
-                    continue;
-                }
+            foreach (var iconName in _icoList)
+            {
+                if (GetIcon(iconName) is not { } ico) continue;
 
-                var outTex = CopyTexture(tex);
-                File.WriteAllBytes(path, outTex.EncodeToPNG());
+                ico.tooltip = iconName;
+                _iconContentListAll.Add(ico);
+
+                var bucket = ico.image is { width: > 36, height: > 36 }
+                    ? _iconContentListBig
+                    : _iconContentListSmall;
+                bucket.Add(ico);
+            }
+
+            UpdateFilteredList();
+        }
+
+        private static GUIContent? GetIcon(string iconName)
+        {
+            if (string.IsNullOrEmpty(iconName)) return null;
+
+            Debug.unityLogger.logEnabled = false;
+            var content = EditorGUIUtility.IconContent(iconName);
+            Debug.unityLogger.logEnabled = true;
+
+            return content?.image is not null ? content : null;
+        }
+
+        #endregion
+
+        #region Save Operations
+
+        private static void SaveIcon(string iconName)
+        {
+            if (EditorGUIUtility.IconContent(iconName).image is not Texture2D tex)
+            {
+                Debug.LogError("Cannot save the icon: null texture error!");
+                return;
+            }
+
+            var path = EditorUtility.SaveFilePanel("Save icon", "", iconName, "png");
+            if (string.IsNullOrEmpty(path)) return;
+
+            try
+            {
+                File.WriteAllBytes(path, CopyTexture(tex).EncodeToPNG());
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Cannot save the icon: {e.Message}");
             }
         }
-        catch (Exception e)
+
+        private void SaveAllIcons()
         {
-            Debug.LogError($"Cannot save the icons: {e.Message}");
+            var folderPath = EditorUtility.SaveFolderPanel("", "", "");
+            if (string.IsNullOrWhiteSpace(folderPath))
+            {
+                Debug.LogError("Folder path invalid...");
+                return;
+            }
+
+            try
+            {
+                foreach (var icon in _icoList)
+                    TrySaveIcon(icon, folderPath);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Cannot save the icons: {e.Message}");
+            }
         }
+
+        private static void TrySaveIcon(string icon, string folderPath)
+        {
+            if (EditorGUIUtility.IconContent(icon).image is not Texture2D tex) return;
+
+            var fileName = icon.Split('/')[^1];
+            var path = Path.Combine(folderPath, $"{fileName}.png");
+
+            if (File.Exists(path))
+            {
+                Debug.Log($"File already exists, skipping: {path}");
+                return;
+            }
+
+            File.WriteAllBytes(path, CopyTexture(tex).EncodeToPNG());
+        }
+
+        #endregion
+
+        #region Utility
+
+        private static Texture2D CopyTexture(Texture2D source)
+        {
+            var copy = new Texture2D(source.width, source.height, source.format, source.mipmapCount, true);
+            Graphics.CopyTexture(source, copy);
+            return copy;
+        }
+
+        private static Texture2D CreatePixelTexture(Color color)
+        {
+            var t = new Texture2D(1, 1);
+            t.SetPixel(0, 0, color);
+            t.Apply();
+            return t;
+        }
+
+        private static void ApplyBackgroundToAllStates(GUIStyle style, Texture2D texture)
+        {
+            var scaled = new[] { texture };
+            style.hover.background = style.onHover.background =
+                style.focused.background = style.onFocused.background =
+                    style.active.background = style.onActive.background =
+                        style.normal.background = style.onNormal.background = texture;
+            style.hover.scaledBackgrounds = style.onHover.scaledBackgrounds =
+                style.focused.scaledBackgrounds = style.onFocused.scaledBackgrounds =
+                    style.active.scaledBackgrounds = style.onActive.scaledBackgrounds =
+                        style.normal.scaledBackgrounds = style.onNormal.scaledBackgrounds = scaled;
+        }
+
+        #endregion
     }
-
-    #endregion
-
-    #region Utility
-
-    private static Texture2D CopyTexture(Texture2D source)
-    {
-        var copy = new Texture2D(source.width, source.height, source.format, source.mipmapCount, true);
-        Graphics.CopyTexture(source, copy);
-        return copy;
-    }
-
-    private static Texture2D CreatePixelTexture(Color color)
-    {
-        var t = new Texture2D(1, 1);
-        t.SetPixel(0, 0, color);
-        t.Apply();
-        return t;
-    }
-
-    private static void ApplyBackgroundToAllStates(GUIStyle style, Texture2D texture)
-    {
-        var scaled = new[] { texture };
-        style.hover.background = style.onHover.background =
-            style.focused.background = style.onFocused.background =
-                style.active.background = style.onActive.background =
-                    style.normal.background = style.onNormal.background = texture;
-        style.hover.scaledBackgrounds = style.onHover.scaledBackgrounds =
-            style.focused.scaledBackgrounds = style.onFocused.scaledBackgrounds =
-                style.active.scaledBackgrounds = style.onActive.scaledBackgrounds =
-                    style.normal.scaledBackgrounds = style.onNormal.scaledBackgrounds = scaled;
-    }
-
-    #endregion
 }
+
 #endif
